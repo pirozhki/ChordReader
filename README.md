@@ -1,4 +1,4 @@
-# ChordReader
+# Chord Reader
 This is a library that reads chords and stores them as a bit sequence.  
 It has the ability to estimate keys and output chords in text again.  
 For more details on how to use it, check out example.cpp.
