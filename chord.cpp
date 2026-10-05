@@ -1,331 +1,598 @@
-/*
-Coded by Pirozhki
-Last Modified:2023/04/17
-*/
-
 #include "chord.h"
 
-void ChordManager::AddChords(vector<string> &chord_names){
-	for(auto itr = chord_names.begin(); itr<chord_names.end(); itr++){
-		try{
-			m_chords.push_back(AddChord(*itr));
-		}
-		catch (const char* e){}
-	}
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <limits>
+#include <sstream>
+#include <stdexcept>
+
+namespace chordreader {
+namespace {
+
+constexpr int ToInt(Note note) noexcept {
+    return static_cast<int>(note);
 }
 
-ChordData ChordManager::AddChord(string &chord_name) throw(const char*) {
-	ChordData chord_data;
-	string::iterator itr = chord_name.begin();
-
-	// ルート位置を決定
-	switch(*itr) {
-	case 'C':
-		chord_data.root = C;
-		break;
-	case 'D':
-		chord_data.root = D;
-		break;
-	case 'E':
-		chord_data.root = E;
-		break;
-	case 'F':
-		chord_data.root = F;
-		break;
-	case 'G':
-		chord_data.root = G;
-		break;
-	case 'A':
-		chord_data.root = A;
-		break;
-	case 'B':
-		chord_data.root = B;
-		break;
-	default:
-		if(chord_name.find("N.C")!=string::npos || chord_name.find("NC")!=string::npos) {
-			chord_data.notes	= 0;
-			chord_data.root	= 0;
-			chord_data.bass		= 0;
-			return chord_data;
-		};
-		throw "invalid chord";
-	}
-	itr++;
-	if(itr!=chord_name.end()){
-		if(*itr=='b') {
-			chord_data.root==0 ? chord_data.root=11 : chord_data.root--;
-		}
-		if(*itr=='#') {
-			chord_data.root==11 ? chord_data.root=0 : chord_data.root++;
-		}
-	}
-
-	// データの先頭は必ずroot
-	chord_data.notes.set(root, 1);
-
-	// 3度/4度を決定
-	if(chord_name.find("m")!=string::npos && chord_name.find("maj")==string::npos && chord_name.find("dim")==string::npos && chord_name.find("omit")==string::npos) {
-		chord_data.notes.set(m3, 1);
-	} else if(chord_name.find("sus4")!=string::npos) {
-		chord_data.notes.set(pf4, 1);
-	} else {
-		chord_data.notes.set(M3, 1);
-	}
-
-	// 5度を決定
-	if(chord_name.find("b5")!=string::npos || chord_name.find("-5")!=string::npos || chord_name.find("dim")!=string::npos) {
-		chord_data.notes.set(dim5, 1);
-	} else if(chord_name.find("#5")!=string::npos || chord_name.find("+5")!=string::npos || chord_name.find("aug")!=string::npos) {
-		chord_data.notes.set(aug5, 1);
-	} else {
-		chord_data.notes.set(pf5, 1);
-	}
-
-	// 6度を決定
-	if(chord_name.find("6")!=string::npos) {
-		chord_data.notes.set(M6, 1);
-	}
-
-	// 7度を決定
-	if(chord_name.find("dim")!=string::npos) {
-		chord_data.notes.set(M6, 1);
-	} else if(chord_name.find("M7")!=string::npos || chord_name.find("maj7")!=string::npos || chord_name.find("Maj7")!=string::npos) {
-		chord_data.notes.set(M7, 1);
-	} else if(chord_name.find("7")!=string::npos) {
-		chord_data.notes.set(m7, 1);
-	}
-
-	// 9度を決定
-	if(chord_name.find("b9")!=string::npos || chord_name.find("-9")!=string::npos) {
-		chord_data.notes.set(m7, 1);
-		chord_data.notes.set(m9, 1);
-	} else if(chord_name.find("#9")!=string::npos || chord_name.find("+9")!=string::npos) {
-		chord_data.notes.set(m7, 1);
-		chord_data.notes.set(aug9, 1);
-	} else if(chord_name.find("add9")!=string::npos) {
-		chord_data.notes.set(M9, 1);
-	} else if(chord_name.find("9")!=string::npos) {
-		chord_data.notes.set(M9, 1);
-		if(!chord_data.notes[M7] & !chord_data.notes[M6])chord_data.notes.set(m7, 1);
-	}
-
-	// 11度を決定
-	if(chord_name.find("#11")!=string::npos|| chord_name.find("+11")!=string::npos) {
-		if(!chord_data.notes[M7] & !chord_data.notes[M6])chord_data.notes.set(m7, 1);
-		chord_data.notes.set(aug11, 1);
-	} else if(chord_name.find("11")!=string::npos) {
-		if(!chord_data.notes[M7] & !chord_data.notes[M6])chord_data.notes.set(m7, 1);
-		chord_data.notes.set(pf11, 1);
-	}
-
-	// 13度を決定
-	if(chord_name.find("b13")!=string::npos || chord_name.find("-13")!=string::npos) {
-		chord_data.notes.set(m7, 1);
-		chord_data.notes.set(m13, 1);
-	} else if(chord_name.find("13")!=string::npos) {
-		if(!chord_data.notes[M7])chord_data.notes.set(m7, 1);
-		chord_data.notes.set(M13, 1);
-	}
-
-	// 5度を除外
-	if(chord_name.find("omit5")!=string::npos) {
-		chord_data.notes.set(dim5, 0);
-		chord_data.notes.set(pf5, 0);
-		chord_data.notes.set(aug5, 0);
-	}
-
-	// 3度を除外
-	if(chord_name.find("omit3")!=string::npos) {
-		chord_data.notes.set(m3, 0);
-		chord_data.notes.set(M3, 0);
-	}
-
-	// ベース音を決定
-	itr = chord_name.end();
-	if(chord_name.find("on")!=string::npos){
-		chord_name.replace(chord_name.find("on"), 2, "/");
-	}
-	if(chord_name.find("/")!=string::npos){
-		itr = chord_name.begin()+chord_name.find("/")+1;
-	}
-	if(itr != chord_name.end()) {	// オンコードの場合
-		switch(*itr) {
-		case 'C':
-			chord_data.bass = C;
-			break;
-		case 'D':
-			chord_data.bass = D;
-			break;
-		case 'E':
-			chord_data.bass = E;
-			break;
-		case 'F':
-			chord_data.bass = F;
-			break;
-		case 'G':
-			chord_data.bass = G;
-			break;
-		case 'A':
-			chord_data.bass = A;
-			break;
-		case 'B':
-			chord_data.bass = B;
-			break;
-		default:
-			chord_data.bass = chord_data.root;
-			break;
-		}
-		itr++;
-		if(itr!=chord_name.end()){
-			if(*itr=='b') {
-				if(chord_data.bass==C)chord_data.bass=B;
-				else chord_data.bass--;
-			}
-			if(*itr=='#') {
-				if(chord_data.bass==B)chord_data.bass=C;
-				else chord_data.bass++;
-			}
-		}
-	} else {	// オンコードでない場合
-		chord_data.bass = chord_data.root;
-	}
-
-	m_chords.push_back(chord_data);
-
-	return chord_data;
+constexpr std::size_t Index(Constituent interval) noexcept {
+    return static_cast<std::size_t>(interval);
 }
 
-string ChordManager::GetChordName(ChordData &chord_data){
-	bitset<24> notes = chord_data.notes;
-	string chord_name;
-
-	chord_name += GetNoteLetter(chord_data.root);
-
-	// コード名に書き下していく
-	bool tension = false;
-	// 6thの場合とb5の場合はmを付ける。dim5とdim7どちらもある場合だけdim7なのでmは要らない
-	if(notes[m3] & !(notes[dim5] & notes[dim7]))chord_name += "m";
-	if(notes[m3] & notes[dim5] & notes[dim7])chord_name += "dim";
-	if(notes[aug5])chord_name += "aug";
-	if(notes[M6] & !notes[dim5])chord_name += "6";
-	if(notes[m7])chord_name += "7";
-	if(notes[M7])chord_name += "M7";
-	if(notes[pf4])chord_name += "sus4";
-	if((!notes[dim7] & !notes[m7] & !notes[M7]) & notes[M9])chord_name += "add9";
-	if((notes[dim5] & !notes[dim7]) | notes[m9] | (bool)((notes[dim7] | notes[m7] | notes[M7]) & notes[M9]) | notes[pf11] | notes[aug11] | notes[m13] | notes[M13])chord_name += "(";
-	if(notes[dim5] & !notes[dim7]) {
-		chord_name += "b5";
-		tension = true;
-	}
-	if(tension & (notes[m9] | ((notes[dim7] | notes[m7] | notes[M7]) & notes[M9])))chord_name += ",";
-	if(notes[m9]) {
-		chord_name += "b9";
-		tension = true;
-	}
-	if((notes[dim7] | notes[m7] | notes[M7]) & notes[M9]) {
-		chord_name += "9";
-		tension = true;
-	}
-	if(tension & (notes[pf11] | notes[aug11]))chord_name+=",";
-	if(notes[pf11]) {
-		chord_name += "11";
-		tension = true;
-	}
-	if(notes[aug11]) {
-		chord_name += "#11";
-		tension = true;
-	}
-	if(tension & (notes[m13] | notes[M13]))chord_name += ",";
-	if(notes[m13])chord_name += "b13";
-	if(notes[M13])chord_name += "13";
-	if((notes[dim5] & !notes[dim7]) | notes[m9] | (bool)((notes[dim7] | notes[m7] | notes[M7]) & notes[M9]) | notes[pf11] | notes[aug11] | notes[m13] | notes[M13])chord_name += ")";
-	if(!notes[m3] & !notes[M3] & !notes[pf4])chord_name += "omit3";
-	if(!notes[dim5] & !notes[pf5] & !notes[aug5])chord_name += "omit5";
-
-	if(chord_data.root != chord_data.bass) {
-		chord_name += "/";
-		chord_name += GetNoteLetter(chord_data.bass);
-	}
-
-	return chord_name;
+constexpr int PitchClassOf(Constituent interval) noexcept {
+    return static_cast<int>(Index(interval) % kNoteCount);
 }
 
-bitset<12> ChordManager::GetChordNotes(ChordData &chord_data){
-	bitset<36> notes = chord_data.notes.to_ulong() << chord_data.root;
-	notes |= notes>>24;	// 3オクターブ目の音を1オクターブ目にもってくる
-	notes &= 0xFFFFFF;
-	notes |= notes>>12;	// 2オクターブ目の音を1オクターブ目にもってくる
-	notes &= 0xFFF;
-	return notes.to_ulong();
+Note NoteFromLetter(char c) {
+    switch (c) {
+    case 'C': return Note::C;
+    case 'D': return Note::D;
+    case 'E': return Note::E;
+    case 'F': return Note::F;
+    case 'G': return Note::G;
+    case 'A': return Note::A;
+    case 'B': return Note::B;
+    default:
+        throw std::invalid_argument("invalid note letter");
+    }
 }
 
-unsigned int ChordManager::EstimateKey() {
-	unsigned int key;
-	int note_count[12] = {0};
+Note ParseNoteAt(std::string_view text, std::size_t pos, std::size_t* consumed) {
+    if (pos >= text.size()) {
+        throw std::invalid_argument("missing note");
+    }
 
-	/*
-	コード構成音とメジャースケールから調(キー)を推定する
-	ただしマイナースケールは平行調のメジャースケールとみなし、転調は考慮しない
-	*/
-	for(unsigned int i=0; i<m_chords.size(); i++) {
-		bitset<12> notes = GetChordNotes(m_chords[i]);
-		for(int j=0; j<12; j++) {
-			if(notes[j]) {
-				note_count[j]++;
-			}
-		}
-	}
+    Note note = NoteFromLetter(text[pos]);
+    std::size_t count = 1;
 
-	int sum[12] = {0};
-	// 各キーでダイアトニックスケール上の音を足し合わせ、スケール外の音をマイナスする
-	for(int i=0; i<12; i++) {
-		sum[i] += note_count[i];
-		sum[i] -= note_count[(i+m2)%12];
-		sum[i] += note_count[(i+M2)%12];
-		sum[i] -= note_count[(i+m3)%12];
-		sum[i] += note_count[(i+M3)%12];
-		sum[i] += note_count[(i+pf4)%12];
-		sum[i] -= note_count[(i+dim5)%12];
-		sum[i] += note_count[(i+pf5)%12];
-		sum[i] -= note_count[(i+m6)%12];	// SDM, Dominant7th in harmonic minor
-		sum[i] += note_count[(i+M6)%12];
-		sum[i] -= note_count[(i+m7)%12];
-		sum[i] += note_count[(i+M7)%12];
-	}
+    if (pos + 1 < text.size() && (text[pos + 1] == '#' || text[pos + 1] == 'b')) {
+        int pitch = ToInt(note) + (text[pos + 1] == '#' ? 1 : -1);
+        pitch = (pitch % 12 + 12) % 12;
+        note = static_cast<Note>(pitch);
+        count = 2;
+    }
 
-	// ダイアトニック上の音数が最大になったときのキーがその曲のキー
-	int sum_max = INT_MIN;
-	for(int i=0; i<12; i++) {
-		if(sum_max < sum[i]) {
-			key = i;
-			sum_max = sum[i];
-		}
-	}
-	//cout << "key=" << key << "\n";
-	return key;
+    if (consumed != nullptr) {
+        *consumed = count;
+    }
+    return note;
 }
 
-void ChordManager::Print() {
-	for(ChordData& chord : m_chords){
-		cout << GetChordName(chord) << endl;
-	}
-	cout << endl;
+bool Contains(std::string_view text, std::string_view token) noexcept {
+    return text.find(token) != std::string_view::npos;
 }
 
-string ChordManager::GetNoteLetter(unsigned int note){
-	switch(note%12){
-	case C:		return "C";
-	case CS:	return "C#";
-	case D:		return "D";
-	case DS:	return "D#";
-	case E:		return "E";
-	case F:		return "F";
-	case FS:	return "F#";
-	case G:		return "G";
-	case GS:	return "G#";
-	case A:		return "A";
-	case AS:	return "A#";
-	case B:		return "B";
-	default:	throw;
-	}
+// Return true when the token occurs outside parentheses. Bare extensions such
+// as C9/C11/C13 conventionally imply a 7th, while parenthesized additions such
+// as C(9)/C(11)/C(#11)/C(13) do not.
+bool ContainsOutsideParentheses(std::string_view text, std::string_view token) noexcept {
+    int depth = 0;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '(') {
+            ++depth;
+            continue;
+        }
+        if (text[i] == ')') {
+            if (depth > 0) {
+                --depth;
+            }
+            continue;
+        }
+        if (depth == 0 && i + token.size() <= text.size() &&
+            text.substr(i, token.size()) == token) {
+            return true;
+        }
+    }
+    return false;
 }
+
+void Set(ChordData& chord, Constituent interval) noexcept {
+    chord.intervals.set(Index(interval), true);
+}
+
+bool Has(const ChordData& chord, Constituent interval) noexcept {
+    return chord.intervals.test(Index(interval));
+}
+
+void Clear(ChordData& chord, Constituent interval) noexcept {
+    chord.intervals.set(Index(interval), false);
+}
+
+std::size_t FindBassDelimiter(std::string_view text, std::size_t start) noexcept {
+    const auto slash = text.find('/', start);
+    const auto on = text.find("on", start);
+
+    if (slash == std::string_view::npos) return on;
+    if (on == std::string_view::npos) return slash;
+    return std::min(slash, on);
+}
+
+} // namespace
+
+ChordData ParseChord(std::string_view input) {
+    while (!input.empty() && std::isspace(static_cast<unsigned char>(input.front()))) {
+        input.remove_prefix(1);
+    }
+    while (!input.empty() && std::isspace(static_cast<unsigned char>(input.back()))) {
+        input.remove_suffix(1);
+    }
+
+    if (input.empty()) {
+        throw std::invalid_argument("empty chord symbol");
+    }
+
+    // Keep compatibility with the original N.C./NC handling, while producing a
+    // value that can be distinguished from C when formatting it again.
+    if (input == "N.C." || input == "N.C" || input == "NC") {
+        ChordData chord;
+        chord.no_chord = true;
+        return chord;
+    }
+
+    std::size_t root_length = 0;
+    const Note root_note = ParseNoteAt(input, 0, &root_length);
+
+    // Modifiers stop at slash/on so bass parsing never accidentally sees chord text.
+    const std::size_t bass_delimiter = FindBassDelimiter(input, root_length);
+    const std::size_t modifier_end =
+        bass_delimiter == std::string_view::npos ? input.size() : bass_delimiter;
+    const std::string_view modifiers = input.substr(root_length, modifier_end - root_length);
+
+    ChordData chord;
+    chord.root = root_note;
+    chord.bass = root_note;
+    Set(chord, Constituent::Root);
+
+    // A bare "5" chord is a power chord: root + perfect 5th, with no 3rd.
+    // Keep this deliberately narrow so that modifiers such as b5, #5, or -5
+    // continue through the normal chord-building path below.
+    const bool power_chord = (modifiers == "5");
+
+    // Diminished chords use a minor 3rd and diminished 5th. A diminished
+    // seventh adds a diminished 7th, which is enharmonic to a major 6th in
+    // our pitch-class representation.
+    const bool diminished = Contains(modifiers, "dim");
+    const bool diminished_seventh = diminished && Contains(modifiers, "7");
+    chord.diminished_seventh = diminished_seventh;
+
+    if (power_chord) {
+        Set(chord, Constituent::P5);
+    } else {
+        // 3rd / 4th
+        if (Contains(modifiers, "sus4")) {
+            Set(chord, Constituent::P4);
+        } else if (
+            Contains(modifiers, "m") &&
+            !Contains(modifiers, "maj") &&
+            !diminished &&
+            !Contains(modifiers, "omit")) {
+            Set(chord, Constituent::m3);
+        } else if (diminished) {
+            Set(chord, Constituent::m3);
+        } else {
+            Set(chord, Constituent::M3);
+        }
+
+        // 5th
+        if (Contains(modifiers, "b5") || Contains(modifiers, "-5") || diminished) {
+            Set(chord, Constituent::Dim5);
+        } else if (Contains(modifiers, "#5") || Contains(modifiers, "+5") || Contains(modifiers, "aug")) {
+            Set(chord, Constituent::m6); // enharmonic #5 / b6 shares this pitch class
+        } else {
+            Set(chord, Constituent::P5);
+        }
+
+        // 6th
+        if (Contains(modifiers, "6")) {
+            Set(chord, Constituent::M6);
+        }
+
+        // 7th
+        if (diminished_seventh) {
+            Set(chord, Constituent::M6); // dim7 is enharmonic to M6 in pitch-class storage
+        } else if (
+            Contains(modifiers, "M7") ||
+            Contains(modifiers, "maj7") ||
+            Contains(modifiers, "Maj7")) {
+            Set(chord, Constituent::M7);
+        } else if (Contains(modifiers, "7")) {
+            Set(chord, Constituent::m7);
+        }
+    }
+
+    // 9th
+    // Bare 9th notation (C9) conventionally includes a 7th, while a
+    // parenthesized addition (C(9), C7(9), etc.) must not create one.
+    // A major-9 chord contains a major 7th as well as the 9th.
+    const bool major_ninth =
+        Contains(modifiers, "M9") || Contains(modifiers, "maj9") || Contains(modifiers, "Maj9");
+
+    const bool bare_b9 = ContainsOutsideParentheses(modifiers, "b9") ||
+                         ContainsOutsideParentheses(modifiers, "-9");
+    const bool bare_sharp9 = ContainsOutsideParentheses(modifiers, "#9") ||
+                             ContainsOutsideParentheses(modifiers, "+9");
+
+    if (Contains(modifiers, "b9") || Contains(modifiers, "-9")) {
+        if (bare_b9) {
+            Set(chord, Constituent::m7);
+        }
+        Set(chord, Constituent::m9);
+    } else if (Contains(modifiers, "#9") || Contains(modifiers, "+9")) {
+        if (bare_sharp9) {
+            Set(chord, Constituent::m7);
+        }
+        Set(chord, Constituent::Aug9);
+    } else if (Contains(modifiers, "add9")) {
+        Set(chord, Constituent::M9);
+    } else if (major_ninth) {
+        Set(chord, Constituent::M7);
+        Set(chord, Constituent::M9);
+    } else if (Contains(modifiers, "9")) {
+        Set(chord, Constituent::M9);
+        if (ContainsOutsideParentheses(modifiers, "9") &&
+            !Has(chord, Constituent::M7) && !Has(chord, Constituent::M6)) {
+            Set(chord, Constituent::m7);
+        }
+    }
+
+    // 11th
+    const bool major_eleventh = Contains(modifiers, "M11") ||
+                                Contains(modifiers, "maj11") ||
+                                Contains(modifiers, "Maj11");
+    if (major_eleventh) {
+        Set(chord, Constituent::M7);
+    }
+
+    const bool bare_sharp11 = ContainsOutsideParentheses(modifiers, "#11") ||
+                              ContainsOutsideParentheses(modifiers, "+11");
+    const bool bare_11 = ContainsOutsideParentheses(modifiers, "11");
+    const bool has_any_9 = Contains(modifiers, "9");
+
+    if (Contains(modifiers, "#11") || Contains(modifiers, "+11")) {
+        if (bare_sharp11 && !Has(chord, Constituent::M7) && !Has(chord, Constituent::M6)) {
+            Set(chord, Constituent::m7);
+        }
+        Set(chord, Constituent::Aug11);
+    } else if (Contains(modifiers, "11")) {
+        if (bare_11 && !Has(chord, Constituent::M7) && !Has(chord, Constituent::M6)) {
+            Set(chord, Constituent::m7);
+        }
+        if (bare_11 && !has_any_9) {
+            // A bare 11th chord conventionally contains the natural 9th as well.
+            // An explicitly written 9/b9/#9 is left to its own notation.
+            Set(chord, Constituent::M9);
+        }
+        Set(chord, Constituent::P11);
+    }
+
+    // 13th
+    const bool major_thirteenth = Contains(modifiers, "M13") ||
+                                  Contains(modifiers, "maj13") ||
+                                  Contains(modifiers, "Maj13");
+    if (major_thirteenth) {
+        Set(chord, Constituent::M7);
+    }
+
+    const bool bare_b13 = ContainsOutsideParentheses(modifiers, "b13") ||
+                          ContainsOutsideParentheses(modifiers, "-13");
+    const bool bare_13 = ContainsOutsideParentheses(modifiers, "13");
+    if (Contains(modifiers, "b13") || Contains(modifiers, "-13")) {
+        if (bare_b13) {
+            Set(chord, Constituent::m7);
+        }
+        Set(chord, Constituent::m13);
+    } else if (Contains(modifiers, "13")) {
+        if (bare_13 && !Has(chord, Constituent::M7) && !Has(chord, Constituent::M6)) {
+            Set(chord, Constituent::m7);
+        }
+        if (bare_13 && !has_any_9) {
+            // A bare 13th chord conventionally contains the natural 9th as well.
+            // An explicitly written 9/b9/#9 is left to its own notation.
+            Set(chord, Constituent::M9);
+        }
+        Set(chord, Constituent::M13);
+    }
+
+    // Explicit omissions are applied last.
+    if (Contains(modifiers, "omit5")) {
+        Clear(chord, Constituent::Dim5);
+        Clear(chord, Constituent::P5);
+        Clear(chord, Constituent::m6);
+    }
+    if (Contains(modifiers, "omit3")) {
+        Clear(chord, Constituent::m3);
+        Clear(chord, Constituent::M3);
+    }
+
+    if (bass_delimiter != std::string_view::npos) {
+        const std::size_t bass_start =
+            input[bass_delimiter] == '/' ? bass_delimiter + 1 : bass_delimiter + 2;
+        std::size_t bass_length = 0;
+        chord.bass = ParseNoteAt(input, bass_start, &bass_length);
+
+        const std::size_t remaining = bass_start + bass_length;
+        if (remaining != input.size()) {
+            throw std::invalid_argument("invalid bass note in chord symbol");
+        }
+    }
+
+    return chord;
+}
+
+std::string GetNoteName(Note note, NoteNameStyle style) {
+    static constexpr std::array<std::string_view, 12> sharps = {
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+    };
+    static constexpr std::array<std::string_view, 12> flats = {
+        "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"
+    };
+
+    const std::size_t index = static_cast<std::size_t>(note) % 12;
+    return std::string((style == NoteNameStyle::Flats ? flats : sharps)[index]);
+}
+
+Note TransposeNote(Note note, int semitones) noexcept {
+    int pitch = ToInt(note) + semitones;
+    pitch = (pitch % 12 + 12) % 12;
+    return static_cast<Note>(pitch);
+}
+
+std::bitset<kNoteCount> GetChordNotes(const ChordData& chord) {
+    std::bitset<kNoteCount> result;
+    if (chord.no_chord) {
+        return result;
+    }
+
+    for (std::size_t i = 0; i < kConstituentCount; ++i) {
+        if (!chord.intervals.test(i)) {
+            continue;
+        }
+
+        const int pitch = (ToInt(chord.root) + static_cast<int>(i % kNoteCount)) % 12;
+        result.set(static_cast<std::size_t>(pitch));
+    }
+    return result;
+}
+
+std::string FormatChord(const ChordData& chord, NoteNameStyle style) {
+    if (chord.no_chord) {
+        return "N.C.";
+    }
+
+    const bool dim7 = chord.diminished_seventh;
+
+    const bool power_chord =
+        Has(chord, Constituent::P5) &&
+        !Has(chord, Constituent::m3) &&
+        !Has(chord, Constituent::M3) &&
+        !Has(chord, Constituent::P4) &&
+        !Has(chord, Constituent::Dim5) &&
+        !Has(chord, Constituent::m6) &&
+        !Has(chord, Constituent::M6) &&
+        !Has(chord, Constituent::m7) &&
+        !Has(chord, Constituent::M7) &&
+        !Has(chord, Constituent::M9) &&
+        !Has(chord, Constituent::m9) &&
+        !Has(chord, Constituent::Aug9) &&
+        !Has(chord, Constituent::P11) &&
+        !Has(chord, Constituent::Aug11) &&
+        !Has(chord, Constituent::m13) &&
+        !Has(chord, Constituent::M13);
+
+    std::string name = GetNoteName(chord.root, style);
+
+    // Keep the original ChordReader's naming order and conventions.
+    // This is important for compatibility: 7 comes before sus4, so
+    // Bb7sus4 remains Bb7sus4 rather than Bb sus47.
+    const bool diminished_triad =
+        Has(chord, Constituent::m3) &&
+        Has(chord, Constituent::Dim5) &&
+        !dim7 &&
+        !Has(chord, Constituent::m7) &&
+        !Has(chord, Constituent::M7);
+
+    if (Has(chord, Constituent::m3) && !diminished_triad && !dim7) {
+        name += "m";
+    }
+    if (diminished_triad) {
+        name += "dim";
+    }
+    if (Has(chord, Constituent::m3) && Has(chord, Constituent::Dim5) && dim7) {
+        name += "dim7";
+    }
+    if (Has(chord, Constituent::m6)) {
+        name += "aug";
+    }
+    if (Has(chord, Constituent::M6) && !Has(chord, Constituent::Dim5)) {
+        name += "6";
+    }
+    if (Has(chord, Constituent::m7)) {
+        name += "7";
+    }
+    if (Has(chord, Constituent::M7)) {
+        name += "M7";
+    }
+    if (Has(chord, Constituent::P4)) {
+        name += "sus4";
+    }
+
+    if ((!Has(chord, Constituent::m7) &&
+         !Has(chord, Constituent::M7) &&
+         !Has(chord, Constituent::m6) &&
+         !dim7) &&
+        Has(chord, Constituent::M9)) {
+        name += "add9";
+    }
+
+    // b5 is a chord-quality alteration, so keep it outside the parentheses.
+    // For example: Cm7b5(11), not Cm7(b5,11).
+    const bool has_b5 = Has(chord, Constituent::Dim5) && !diminished_triad && !dim7;
+    if (has_b5) {
+        name += "b5";
+    }
+
+    std::vector<std::string> tensions;
+    if (Has(chord, Constituent::m9)) {
+        tensions.emplace_back("b9");
+    }
+
+    if ((dim7 || Has(chord, Constituent::m7) || Has(chord, Constituent::M7)) &&
+        Has(chord, Constituent::M9)) {
+        tensions.emplace_back("9");
+    }
+
+    if (Has(chord, Constituent::P11)) {
+        tensions.emplace_back("11");
+    }
+    if (Has(chord, Constituent::Aug11)) {
+        tensions.emplace_back("#11");
+    }
+    if (Has(chord, Constituent::m13)) {
+        tensions.emplace_back("b13");
+    }
+    if (Has(chord, Constituent::M13)) {
+        tensions.emplace_back("13");
+    }
+
+    if (!tensions.empty()) {
+        name += "(";
+        for (std::size_t i = 0; i < tensions.size(); ++i) {
+            if (i != 0) {
+                name += ",";
+            }
+            name += tensions[i];
+        }
+        name += ")";
+    }
+
+    // The original library represented a bare power chord simply as root5.
+    // Omit markers are otherwise kept compatible with the original formatter.
+    if (power_chord) {
+        name = GetNoteName(chord.root, style) + "5";
+    } else {
+        if (!Has(chord, Constituent::m3) &&
+            !Has(chord, Constituent::M3) &&
+            !Has(chord, Constituent::P4)) {
+            name += "omit3";
+        }
+
+        if (!Has(chord, Constituent::Dim5) &&
+            !Has(chord, Constituent::P5) &&
+            !Has(chord, Constituent::m6)) {
+            name += "omit5";
+        }
+    }
+
+    if (chord.root != chord.bass) {
+        name += "/";
+        name += GetNoteName(chord.bass, style);
+    }
+
+    return name;
+}
+
+ChordData ChordManager::AddChord(std::string_view chord_name) {
+    ChordData chord = ParseChord(chord_name);
+    m_chords.push_back(chord);
+    return chord;
+}
+
+bool ChordManager::TryAddChord(std::string_view chord_name, std::string* error) noexcept {
+    try {
+        AddChord(chord_name);
+        return true;
+    } catch (const std::exception& ex) {
+        if (error != nullptr) {
+            *error = ex.what();
+        }
+        return false;
+    } catch (...) {
+        if (error != nullptr) {
+            *error = "unknown parse error";
+        }
+        return false;
+    }
+}
+
+std::size_t ChordManager::AddText(
+    std::string_view text,
+    std::vector<std::string>* errors) {
+
+    std::size_t added = 0;
+    std::istringstream stream{std::string(text)};
+    std::string token;
+
+    while (stream >> token) {
+        std::string error;
+        if (TryAddChord(token, &error)) {
+            ++added;
+        } else if (errors != nullptr) {
+            errors->push_back(token + ": " + error);
+        }
+    }
+
+    return added;
+}
+
+void ChordManager::Transpose(int semitones) noexcept {
+    for (ChordData& chord : m_chords) {
+        if (chord.no_chord) {
+            continue;
+        }
+        chord.root = TransposeNote(chord.root, semitones);
+        chord.bass = TransposeNote(chord.bass, semitones);
+    }
+}
+
+std::optional<Note> ChordManager::EstimateKey() const noexcept {
+    std::array<int, 12> note_count{};
+
+    for (const ChordData& chord : m_chords) {
+        const auto notes = GetChordNotes(chord);
+        for (std::size_t i = 0; i < 12; ++i) {
+            if (notes.test(i)) {
+                ++note_count[i];
+            }
+        }
+    }
+
+    if (std::all_of(note_count.begin(), note_count.end(), [](int count) { return count == 0; })) {
+        return std::nullopt;
+    }
+
+    constexpr std::array<int, 12> score = {
+        +1, -1, +1, -1, +1, +1, -1, +1, -1, +1, -1, +1
+    };
+
+    int best_score = std::numeric_limits<int>::min();
+    int best_key = 0;
+
+    for (int key = 0; key < 12; ++key) {
+        int sum = 0;
+        for (int interval = 0; interval < 12; ++interval) {
+            sum += note_count[(key + interval) % 12] * score[interval];
+        }
+
+        if (sum > best_score) {
+            best_score = sum;
+            best_key = key;
+        }
+    }
+
+    return static_cast<Note>(best_key);
+}
+
+void ChordManager::WriteTo(
+    std::ostream& os,
+    NoteNameStyle style,
+    std::string_view separator) const {
+
+    for (std::size_t i = 0; i < m_chords.size(); ++i) {
+        if (i != 0) {
+            os << separator;
+        }
+        os << FormatChord(m_chords[i], style);
+    }
+}
+
+} // namespace chordreader
+

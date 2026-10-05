@@ -1,53 +1,69 @@
-#include <iostream>
-#include <fstream>
-#include <sstream>
-
 #include "chord.h"
 
-using namespace std;
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <string>
+#include <vector>
 
-int main() {
-	ifstream ifs;
-	ChordManager chord_manager;
+using namespace chordreader;
 
-	try{
-		ifs.open("sample.txt");
-	}
-	catch (...){
-		cout << "can't read a file" << endl;
-	}
+namespace {
 
-	// read chords and convert to int32
-	string line;
-	string s;
-	while (getline(ifs, line)) {
-		stringstream ss(line);
-		while (ss.good()){
-			ss >> s;
-			try{
-				chord_manager.AddChord(s);
-			}
-			catch (...){}
-		}
-		vector<ChordData> chords = chord_manager.GetChords();
-		int key = chord_manager.EstimateKey();
-		for (auto itr = chords.begin(); itr != chords.end(); itr++){
-			// transpose key to C major
-			if (itr->root - key < 0){
-				itr->root = itr->root + 12 - key;
-			}
-			else{
-				itr->root -= key;
-			}
-			if (itr->bass - key < 0){
-				itr->bass = itr->bass + 12 - key;
-			}
-			else{
-				itr->bass -= key;
-			}
-			cout << ChordManager::GetChordName(*itr) << " ";
-		}
-		cout << endl;
-		chord_manager.Clear();
-	}
+std::string ReadAll(std::istream& input) {
+    return std::string(
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>());
+}
+
+void PrintUsage(const char* exe) {
+    std::cerr << "Usage: " << exe << " [chord-file]\n"
+              << "       Without an argument, reads sample.txt.\n";
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+    if (argc > 2) {
+        PrintUsage(argv[0]);
+        return 2;
+    }
+
+    const char* filename = argc == 2 ? argv[1] : "sample.txt";
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "Failed to open: " << filename << '\n';
+        return 1;
+    }
+
+    const std::string input = ReadAll(file);
+
+    ChordManager manager;
+    std::vector<std::string> errors;
+    manager.AddText(input, &errors);
+
+    std::cout << "Input progression:\n";
+    std::cout << input << "\n";
+    std::cout << "Parsed " << manager.Size() << " chord(s).\n";
+
+    if (const auto key = manager.EstimateKey()) {
+        std::cout << "Estimated key: "
+                  << GetNoteName(*key, NoteNameStyle::Flats)
+                  << " major\n";
+        std::cout << "Transposed to C major:\n";
+        manager.Transpose(-static_cast<int>(*key));
+        manager.WriteTo(std::cout, NoteNameStyle::Flats);
+        std::cout << '\n';
+    } else {
+        std::cout << "Estimated key: unavailable\n";
+    }
+
+    if (!errors.empty()) {
+        std::cerr << "Skipped invalid chord symbol(s):\n";
+        for (const auto& error : errors) {
+            std::cerr << "  " << error << '\n';
+        }
+    }
+
+    return errors.empty() ? 0 : 1;
 }
