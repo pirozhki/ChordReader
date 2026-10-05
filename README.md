@@ -1,6 +1,8 @@
 # ChordReader
 
-A small, dependency-free C++17 library for reading chord symbols, extracting their pitch classes, estimating a major key, and transposing chord progressions.
+A small, dependency-free C++17 helper library for reading chord symbols and converting them into structured chord data that can be used by a chord player or other music software.
+
+ChordReader is **not a chord player itself**. Its main purpose is to take practical chord-chart text such as `F7/Bb` or `DbM9` and turn it into a form that a playback program can use to determine the chord tones and bass note.
 
 ## Features
 
@@ -8,9 +10,9 @@ A small, dependency-free C++17 library for reading chord symbols, extracting the
 - Handle extensions and alterations including `6`, `7`, `9`, `11`, `13`, `b5`, `b9`, `#9`, `#11`, `b13`, `add9`, `sus4`, and `aug`.
 - Handle diminished chords (`dim`, `dim7`) and power chords (`5`).
 - Recognize `N.C.` (no chord) explicitly.
-- Extract the chord's 12 pitch classes from the original 24-position constituent representation.
-- Estimate a major key from the stored chord tones.
-- Transpose an entire progression without requiring callers to manipulate root and bass notes directly.
+- Keep the root, chord quality, tensions, and slash-bass information available for use by a chord player.
+- Extract the chord's 12 pitch classes from the internal constituent representation.
+- Provide key estimation and transposition as optional utility functions.
 - Format notes using either sharps or flats.
 - Provide a simple `ChordManager` for parsing a single chord or a whitespace-separated text block.
 - No external libraries are required.
@@ -69,7 +71,9 @@ ChordReader distinguishes between a bare extension and a parenthesized added ton
 | `C(13)` | C + added 13th; no automatic 7th | `C(13)` |
 | `C7(#11)` | C7 + #11 | `C7(#11)` |
 
-The same principle applies when an altered extension is written inside parentheses: `C(b9)`, `C(#9)`, and `C(b13)` add only the specified altered tone and do not introduce a 7th by themselves. An explicitly written seventh, as in `C7(b9)` or `C7(#9)`, is of course retained.
+The same principle applies when an altered extension is written inside parentheses: `C(b9)`, `C(#9)`, and `C(b13)` add only the specified altered tone and do not introduce a 7th by themselves. An explicitly written seventh, as in `C7(b9)` or `C7(#9)`, is retained.
+
+Bare `11` and `13` use the conventional stacked-extension interpretation: `C11` includes a 7th, 9th, and 11th, while `C13` includes a 7th, 9th, and 13th. The 11th is not automatically added to `C13` unless it is explicitly written.
 
 ### Diminished and flat-fifth notation
 
@@ -84,13 +88,31 @@ The same principle applies when an altered extension is written inside parenthes
 
 A flat fifth is treated as part of the chord quality and is formatted outside the tension parentheses. For example, `Cm7-5(11)` and `Cm7(b5,11)` are both normalized to `Cm7b5(11)`.
 
-`M9` is treated as a major 7th plus a 9th, so `DbM9` is parsed as `DbM7(9)` rather than `Db7(9)`. Bare `11` and `13` extensions likewise imply the lower 9th: `C11` is parsed as `C7(9,11)` and `C13` as `C7(9,13)`. Major forms such as `CM11` and `CM13` retain the major 7th and become `CM7(9,11)` and `CM7(9,13)`. Parenthesized additions such as `C7(11)` and `C7(13)` do not add a 9th automatically.
+`M9` is treated as a major 7th plus a 9th, so `DbM9` is parsed as `DbM7(9)` rather than `Db7(9)`. Likewise, `CM11` becomes `CM7(9,11)` and `CM13` becomes `CM7(9,13)`.
+
+### Slash bass
+
+The part after `/` is treated as a **bass note**, not as a tension. For example:
+
+```text
+D#aug/F
+```
+
+means an augmented chord rooted on D# with F as the bass note. The bass specification is kept separate from the chord quality so that a chord player can use it when constructing the voicing.
+
+This also applies to forms such as:
+
+```text
+F7/Bb
+C7(b9)/E
+Daug/Ab
+```
 
 The parser is intended for practical chord-chart notation rather than as a full formal music-notation grammar. Whitespace-separated chord symbols are supported by `ChordManager::AddText()`.
 
 ## Example
 
-The included `example.cpp` reads chord symbols from `sample.txt`. The sample is intentionally fairly complex so that parsing, key estimation, and transposition are easy to inspect.
+The included `example.cpp` reads chord symbols from `sample.txt`. The sample is intentionally fairly complex so that the chord parsing can be inspected using realistic chord-chart notation.
 
 `sample.txt` contains:
 
@@ -108,7 +130,7 @@ cmake --build build --config Release
 
 On Windows with a Visual Studio generator, run the executable from the corresponding `Release` directory.
 
-The example intentionally uses the canonical output conventions of ChordReader. For example, `Bb7sus4` is formatted as `Bb7sus4`, and a major-9 chord such as `DbM9` is represented as `DbM7(9)` after parsing because `M9` is interpreted as a major 7th plus a 9th. The major-9 chord therefore keeps its major 7th component and is not converted into a dominant `7(9)` chord. Bare `11` and `13` extensions include the natural 9th (`C11` → `C7(9,11)`, `C13` → `C7(9,13)`), while parenthesized additions do not. A flat fifth is formatted outside the tension parentheses, for example `Cm7b5(11)`.
+The example demonstrates the same information that a chord player can consume from the parsed progression. It also shows the optional key-estimation and transposition helpers.
 
 For the sample above, the example program produces:
 
@@ -127,7 +149,7 @@ With no argument, the program reads `sample.txt` from the current working direct
 
 ## Library usage
 
-For a simple progression:
+The main use case is to parse chord symbols and pass the resulting `ChordData` to another component such as a chord player:
 
 ```cpp
 #include "chord.h"
@@ -136,18 +158,24 @@ For a simple progression:
 using namespace chordreader;
 
 int main() {
-    ChordManager manager;
-    manager.AddText("DbM9 Ebm9 Cm7-5(11) F7 F7/Bb Bbm Abm Db7 Gb");
+    const ChordData chord = ParseChord("F7/Bb");
+    const auto notes = GetChordNotes(chord);
 
-    if (const auto key = manager.EstimateKey()) {
-        std::cout << "Estimated key: " << GetNoteName(*key, NoteNameStyle::Flats)
-                  << " major\n";
+    // `chord` contains the root, chord information, and bass note.
+    // A chord player can use that data to construct its own voicing.
+    std::cout << FormatChord(chord, NoteNameStyle::Flats) << '\n';
+    return 0;
+}
+```
 
-        manager.Transpose(-static_cast<int>(*key));
-    }
+For a chord progression:
 
-    manager.WriteTo(std::cout, NoteNameStyle::Flats);
-    std::cout << '\n';
+```cpp
+ChordManager manager;
+manager.AddText("DbM9 Ebm9 Cm7-5(11) F7 F7/Bb Bbm Abm Db7 Gb");
+
+for (const auto& chord : manager.GetChords()) {
+    // Pass `chord` to the playback layer.
 }
 ```
 
@@ -156,13 +184,6 @@ For input that may contain invalid symbols, `AddText()` can collect them without
 ```cpp
 std::vector<std::string> errors;
 const std::size_t added = manager.AddText(text, &errors);
-```
-
-For a single symbol:
-
-```cpp
-const ChordData chord = ParseChord("F7/Bb");
-const auto notes = GetChordNotes(chord);
 ```
 
 `TryAddChord()` is available when exception-free control flow is preferred.
@@ -181,7 +202,24 @@ ctest --test-dir build --output-on-failure -C Release
 
 `ChordData` stores the root, bass, no-chord state, and the original 24-position interval representation. `GetChordNotes()` converts that representation into the corresponding 12 pitch classes.
 
-`ChordManager` owns a progression and provides parsing, iteration, key estimation, transposition, and formatted output. `ParseChord()` and `FormatChord()` are separate so parsing and presentation can evolve independently.
+`ChordManager` owns a progression and provides parsing, iteration, optional key estimation, optional transposition, and formatted output. `ParseChord()` and `FormatChord()` are separate so parsing and presentation can evolve independently.
+
+The intended architecture is:
+
+```text
+Chord chart / text input
+        |
+        v
+   ChordReader
+        |
+        v
+    ChordData
+        |
+        v
+   Chord player / playback engine
+```
+
+ChordReader handles parsing and chord representation; sound generation, voicing, timing, MIDI, and audio playback are left to the application using the library.
 
 ## Limitations
 
